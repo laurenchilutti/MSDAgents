@@ -35,8 +35,9 @@ while True:
         print("Bye.")
         break
 
-    response, docs_and_scores = chatbot.ask(user_question)        
+    response, docs_and_scores, context = chatbot.ask(user_question)        
     sources = ", ".join([doc.metadata.get("source")+"/"+doc.metadata.get("name") for doc, _ in docs_and_scores])
     print(f"\nAssistant: {response}")
-    print(f"Relevant sources: {sources}")
+    print(f"\nContext: {context}")
+    #print(f"Relevant sources: {sources}")
     print("\n\n")

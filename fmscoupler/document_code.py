@@ -17,7 +17,7 @@ from langchain_core.documents import Document
 
 from document_utils import (
     chunkers, splitters, dense_ef, tokenizer,
-    make_id, create_milvus_database,    
+    make_id, create_milvus_database, check_chunk_length
 )
 
 from shared.metadata import ChunkMetadata
@@ -82,15 +82,16 @@ def parse_doc(filepath: Path) -> tuple[list[Document], list[str]]:
 
         if "variable" in h2:
             # each variable is a document
-            for ivar in content.splitlines():
-                name = make_id([source, ivar.strip()])                
+            for ivar in content.splitlines()[2:]: 
+                ivar_removed_pipe = ivar.split("|") # Remove any trailing pipe and whitespace
+                name = make_id([source, ivar_removed_pipe[1].strip()])     
                 metadata = ChunkMetadata(
                     source=source, 
                     name=name,
                     parent=source, 
                     datatype="variable"
                 )
-                documents.append(Document(page_content=ivar.strip(), metadata=metadata.model_dump()))
+                documents.append(Document(page_content="".join(ivar_removed_pipe), metadata=metadata.model_dump()))
                 ids.append(name)
 
         elif "subroutine" in h2 or "function" in h2:
@@ -118,7 +119,7 @@ def parse_doc(filepath: Path) -> tuple[list[Document], list[str]]:
 # Build
 # ---------------------------------------------------------------------------
 
-def build(code_mods_dir: Path|str, create_database: bool = False, cleanup: bool = True) -> tuple[list[Document], list[str]] | None:
+def build(code_mods_dir: Path|str, create_database: bool = False, cleanup: bool = False) -> tuple[list[Document], list[str]] | None:
     """Parse all code-module .md files."""
 
     filepaths = xml_to_markdown()  # Convert XML to Markdown files

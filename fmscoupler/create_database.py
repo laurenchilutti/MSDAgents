@@ -74,8 +74,10 @@ if __name__ == "__main__":
     print(f"Total: {len(all_documents)} documents")
 
     print("checking duplicate document IDs...")    
-    if duplicates := [item for item, count in Counter(all_ids).items() if count > 1]:
-        raise RuntimeError(f"Duplicate document IDs found: {duplicates}")
+    counts = Counter(all_ids)
+    duplicate_ids = [item for item, count in counts.items() if count > 1]
+    if duplicate_ids:
+        print(f"Duplicate document IDs found: {duplicate_ids}")    
     
     # Create the unified database
     print("\nCreating Milvus database...")

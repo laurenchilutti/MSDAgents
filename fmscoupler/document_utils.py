@@ -8,8 +8,7 @@ and create_database.py.
 
 import logging
 
-from pydantic import BaseModel
-from pymilvus import MilvusClient, connections
+from pymilvus import DataType, Function, FunctionType, MilvusClient
 
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -67,28 +66,28 @@ splitters = {
 chunkers = {
     "flowchart": RecursiveCharacterTextSplitter(
         separators=[r"(?=Step \d+:)"],
-        chunk_size=MAX_TOKEN_LENGTH * 3,
+        chunk_size=MAX_TOKEN_LENGTH*3,
         chunk_overlap=0,
         is_separator_regex=True,
     ),
     "arguments": RecursiveCharacterTextSplitter(
         separators=["\n"],
-        chunk_size=MAX_TOKEN_LENGTH * 3,
+        chunk_size=MAX_TOKEN_LENGTH*3,
         chunk_overlap=0,
     ),
     "intro": RecursiveCharacterTextSplitter(
         separators=["\n\n", "\n", ". "],
-        chunk_size=MAX_TOKEN_LENGTH * 3,
+        chunk_size=MAX_TOKEN_LENGTH*3,
         chunk_overlap=CHUNK_OVERLAP,
     ),
     "description": RecursiveCharacterTextSplitter(
         separators=["\n\n", "\n", ". "],
-        chunk_size=MAX_TOKEN_LENGTH * 3,
+        chunk_size=MAX_TOKEN_LENGTH*3,
         chunk_overlap=CHUNK_OVERLAP,
     ),
     "misc": RecursiveCharacterTextSplitter(
         separators=["\n\n", "\n", ". "],
-        chunk_size=MAX_TOKEN_LENGTH * 3,
+        chunk_size=MAX_TOKEN_LENGTH*3,
         chunk_overlap=CHUNK_OVERLAP,
     )
 }
@@ -148,16 +147,76 @@ def create_milvus_database(documents: list, ids: list, collection_name: str) -> 
     print(f"\n[milvus] Connecting to {MILVUS_HOST}:{MILVUS_PORT}")
     print(f"[milvus] Collection  : {collection_name}")
     print(f"[milvus] Embedding   : {HUGGINGFACE_MODEL}  ({DENSE_DIM}-dim dense + BM25 sparse)")
-    Milvus.from_documents(
-        documents=documents,
-        ids=ids,
-        embedding=dense_ef,
-        builtin_function=BM25BuiltInFunction(),
-        vector_field=["dense", "sparse"],
-        connection_args={"uri": f"http://{MILVUS_HOST}:{MILVUS_PORT}", "alias": "default"},
-        collection_name=collection_name,
-        drop_old=True,
+
+    if len(documents) != len(ids):
+        raise ValueError("documents and ids must have the same length")
+
+    #vectorstore = Milvus(
+    #    embedding_function=dense_ef,
+    #    builtin_function=BM25BuiltInFunction(),
+    #    vector_field=["dense", "sparse"],
+    #    connection_args={"host": MILVUS_HOST, "port": MILVUS_PORT, "alias": "default"},
+    #    collection_name=collection_name,
+    #)
+
+    #vectorstore.from_documents(
+    #    documents=documents,
+    #    ids=ids,
+    #    embedding=dense_ef,
+    #)
+
+    #code that cannot be used because of bug in langchain_milvus
+    client = connect_to_client()
+    remove_collection_if_exists(collection_name)
+
+    schema = client.create_schema(auto_id=False, enable_dynamic_field=False)
+    schema.add_field(field_name="name", datatype=DataType.VARCHAR, is_primary=True, max_length=MAX_ID_LEN)
+    schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=MAX_TEXT_LEN, enable_analyzer=True)
+    schema.add_field(field_name="source", datatype=DataType.VARCHAR, max_length=MAX_ID_LEN)
+    schema.add_field(field_name="parent", datatype=DataType.VARCHAR, max_length=MAX_ID_LEN)
+    schema.add_field(field_name="datatype", datatype=DataType.VARCHAR, max_length=64)
+    schema.add_field(field_name="ichunk", datatype=DataType.INT64)
+    schema.add_field(field_name="dense", datatype=DataType.FLOAT_VECTOR, dim=DENSE_DIM)
+    schema.add_field(field_name="sparse", datatype=DataType.SPARSE_FLOAT_VECTOR)
+    schema.add_function(
+       Function(
+           name="text_bm25",
+           function_type=FunctionType.BM25,
+           input_field_names=["text"],
+           output_field_names=["sparse"],
+       )
     )
+
+    index_params = client.prepare_index_params()
+    index_params.add_index(field_name="dense", index_type="AUTOINDEX", metric_type="COSINE")
+    index_params.add_index(field_name="sparse", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")
+
+    client.create_collection(
+       collection_name=collection_name,
+       schema=schema,
+       index_params=index_params,
+    )
+
+    texts = [document.page_content for document in documents]
+    dense_vectors = dense_ef.embed_documents(texts)
+    rows = []
+    for document, doc_id, dense_vector in zip(documents, ids, dense_vectors, strict=True):
+       metadata = document.metadata
+       print(doc_id)
+       rows.append(
+           {
+               "name": doc_id,
+               "text": document.page_content,
+               "source": metadata.get("source", ""),
+               "parent": metadata.get("parent", ""),
+               "datatype": metadata.get("datatype", ""),
+               "ichunk": metadata.get("ichunk", 0),
+               "dense": dense_vector,
+           }
+       )
+
+    client.insert(collection_name=collection_name, data=rows)
+    client.load_collection(collection_name=collection_name)
     print(f"\n[milvus] Ingestion complete -- {len(documents)} documents stored.")
 
 
