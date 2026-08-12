@@ -6,79 +6,73 @@ from bs4 import BeautifulSoup
 from langchain_core.documents import Document
 
 
+def _clean(text_to_clean):
+    """
+    Returns text inside tag and nested tags if text_to_clean is not None.
+    Else, returns empty string.
+    """
+    return text_to_clean.text.strip() if text_to_clean is not None else ""
+
+
 class XMLsoup():
 
-    def __init__(self, xmldir: str|Path = "./", xmlfile: str|Path = None):
+    """
+    Returns a BeautifulSoup object for the given XML file.
+    """
 
-        self.xmldir = xmldir
-        self.xmlfile = xmlfile
-        self.soup = self.get_xmlsoup()
-        self.toplevel_name = self.get_name(toplevel=True)
-        
-    def get_xmlsoup(self):
+    @staticmethod
+    def get_soup(xmldir: str|Path = "./", xmlfile: str|Path = None):
 
-        if self.xmlfile is None:
+        if xmlfile is None:
             raise IOError("xmlfile not specified")
 
-        xmlfile = Path(self.xmldir)/Path(self.xmlfile)
+        xmlfile = Path(xmldir)/Path(xmlfile)
 
         if xmlfile.exists():
             with open(xmlfile, "r") as openedfile:
                 return BeautifulSoup(openedfile, "lxml-xml")
         else:
-            raise FileNotFoundError(f"xml file '{self.xmlfile}' in directory '{self.xmldir}' does not exist")        
+            raise FileNotFoundError(f"xml file '{xmlfile}' in directory '{xmldir}' does not exist")
 
-        
-    def get_name(self, soup = None, toplevel = False):
 
-        """
-        Retrieves the name tag.
-        The module name is a special case: <compoundname>atm_land_ice_flux_exchange.F90</compoundname>
-        """
-        
-        if soup is None:
-            soup = self.soup
-
-        tag = "name"
-        if toplevel:
-            tag = "compoundname"
-
-        name = self.get_tag_to_string(tag, soup)
-
-        if name is not None:
-            namstr = name.strip()
-            if namstr:
-                return namstr
-
-        raise RuntimeError(f"cannot find tag '{tag}' to set name in {self.soup}.  ")
+class ProcedureParser():
     
-                
+    def __init__(self):
+        self.procedures_dict = {}
+
+    def document_procedures(self, soup):
     
-    def get_tag_to_string(self, tag, soup = None):
-
         """
-        Returns the text of the tag
-        For example, returns the text in
-        <parblock> text </parblock>
+        Documents subroutines and functions.
         """
 
-        if soup is None:
-            soup = self.soup
-
-        tagobj = soup.find(tag)                
+        procedures_objs = soup.find_all("memberdef", {"kind": "function"})
         
-        if tagobj is not None:
-            tagstr = tagobj.text.strip()
-            if tagstr:
-                return tagstr
-            
-        return ""
+        if procedures_objs:    
+            for procedure_obj in procedures_objs:            
+                procedure_dict = {}                
+                # parses <name>atm_land_ice_flux_exchange_init</name>            
+                procname = _clean(procedure_obj.find("name"))                        
+                # parses <type>subroutine, public</type>            
+                procedure_dict["type"] = _clean(procedure_obj.find("type"))                        
+                # parses  <argsstring>(Time, Atm, Land, Ice, atmos</argsstring
+                procedure_dict["argsstring"] = _clean(procedure_obj.argsstring).strip("()")               
+                # parses brief and detailed descriptions
+                procedure_dict["detaileddescription"] = self.get_detaileddescription(procedure_obj)
+                # parses arguments
+                procedure_dict["parameters"] = self.get_arguments_dict(procedure_obj)                
+                # parses inbodydescription <inbodydescription><para>This is inside the code</para></inbodydescription>
+                procedure_dict["inbodydescription"] = self.get_inbodydescription_list(procedure_obj)
+                # save
+                self.procedures_dict[procname] = procedure_dict
+
+        return self.procedures_dict
 
 
-    def get_parameters_description(self, soup = None, subroutine_name = None):
+    def get_arguments_dict(self, soup):
 
         """
-        Returns the parameters for a subroutine as tables by parsing
+        Returns the parameters for a subroutine
         <parameterlist>
             <parameteritem>
                 <parameternamelist>
@@ -89,35 +83,42 @@ class XMLsoup():
                 </parameterdescription>
             </parameteritem>
         </parameterlist>
-        into 
-        | Name | Type | Subroutine | Definition |
-        |------|------|------------|------------|
-        | time | intent(in) | subroutine_name | is the current model time |        
         """
 
-        if soup is None:
-            soup = self.soup
-
+        parameters_dict = {}
         parameter_item_objs = soup.find_all("parameteritem")
 
-        if not parameter_item_objs:
-            return None
+        if parameter_item_objs:
+            for parameter_item_obj in parameter_item_objs:
+                parameter_namelist_obj = parameter_item_obj.parameternamelist
+                name = parameter_namelist_obj.text.strip()
+                parameters_dict[name] = {
+                    "inout": parameter_namelist_obj.get("direction", "inout"), 
+                    "description": _clean(parameter_item_obj.parameterdescription)
+                }
 
-        table = "| Name | Type | Subroutine | Definition |\n|------|------|------------|------------|\n"
-        for parameter_item_obj in parameter_item_objs:
-            parameter_namelist_obj = parameter_item_obj.parameternamelist
-            if parameter_namelist_obj is None:
-                raise RuntimeError(f"cannot find parameter namelist in {parameter_item_obj}")
+        return parameters_dict
 
-            inout = parameter_namelist_obj.get("direction", "inout")
-            parameter_name = parameter_namelist_obj.text.split()[0].strip()
-            parameter_description = self.get_tag_to_string("parameterdescription", parameter_item_obj)
+    def get_detaileddescription(self, soup):
 
-            table += f"| {parameter_name} | intent({inout}) | {subroutine_name or ''} | {parameter_description} |\n"
+        """
+        Parses
+        <briefdescription>
+            <para><parblock>Brief description.</parblock></para>
+        </briefdescription>
+        <detaileddescription>
+            <para><parblock>Long description.</parblock></para>
+        </detaileddescription>
+        """
+        briefdescription = _clean(soup.briefdescription)
+        try:
+            detaileddescription = _clean(soup.detaileddescription.parblock)
+        except AttributeError:
+            detaileddescription = ""
 
-        return table
+        return f"{briefdescription}  {detaileddescription}".strip()
 
-    def get_inbodydescription(self, soup = None):
+    def get_inbodydescription_list(self, soup):
         
         """
         Parses
@@ -125,91 +126,43 @@ class XMLsoup():
         <para><parblock><para>INITIALIZE MODULE-LEVEL VARIABLES. </para></parblock></para>
         <para><parblock><para>GET FILE UNIT FOR STDOUT AND STDLOG FOR INTERNAL LOGGING PURPOSES </para></parblock></para>
         </inbodydescription>
-        into
-        Step 1: INITIALIZE MODULE-LEVEL VARIABLES.
-        Step 2: GET FILE UNIT FOR STDOUT AND STDLOG FOR INTERNAL LOGGING PURPOSES
         """
 
-        if soup is None:
-            soup = self.soup
+        inbodydescription = []
 
         inbodydescription_obj = soup.find("inbodydescription")
 
-        if inbodydescription_obj is None:
-            return ""
-
-        steps = ""
-        if inbodydescription_obj.text.strip():
-            for istep, step in enumerate(inbodydescription_obj.find_all("parblock")):
+        if inbodydescription_obj:
+            for step in inbodydescription_obj.find_all("para"):
                 if step.text.strip():
-                    steps += f"Step {istep+1}: {step.text.strip()}\n"
+                    inbodydescription.append(f"{step.text.strip()}.")
 
-        return steps
+        return inbodydescription
 
-
-class ModuleTopLevelDocument(XMLsoup):
-    """Parse module-level documentation from Doxygen XML files.
     
-    Extracts overview information from Fortran module documentation,
-    combining brief descriptions and detailed descriptions from parblocks.
-    """
+class TopLevelDocParser():
 
-    def __init__(self,
-                 xmldir: str|Path = "./docs/xml",
-                 xmlfile: str|Path = None):
+    def __init__(self):
 
-        """
-        Parses top-level documentation in files like atm__land__ice_flux__exchange__f90.xml
-        to append to documentation from namespaceatm__land_ice_flux_exchange__f90.xml.
-        Overview is expected to for example be:
-        !! @brief Module atm_land_ice_flux_exchange_mod is responsible for exchanging 
-        !! fluxes between the atmosphere, land, and ice components.
-        !! @parblock
-        !! Module atm_land_ice_flux_exchange_mod contains this and that
-        !! @endparblock
-        !! module atm_land_ice_flux_exchange
-        !! end module atm_land_ice_flux_exchange
-        """
-        super().__init__(xmldir, xmlfile)
-        self.overview = self.document_overview()
-  
-    def document_overview(self):
+        self.description = ""
+    
+    def get_description(self, soup):
         
-        briefdescription = self.get_tag_to_string("briefdescription")
-        detaileddescription = self.get_tag_to_string("parblock")
+        briefdescription = _clean(soup.briefdescription)
+        detaileddescription = _clean(soup.detaileddescription)
         
-        return f"{briefdescription}  {detaileddescription}".strip()
+        self.description = f"{briefdescription}  {detaileddescription}".strip()
+
+        return self.description
     
 
-class ModuleBodyDocument(XMLsoup):
+class ModuleVariableParser():
 
-    def __init__(self,
-                 xmldir: str|Path = "./docs/xml",
-                 xmlfile: str|Path = None,
-                 append_overview: bool = True):
+    def __init__(self):
+        self.variables_dict = {}
+    
+    def get_module_variables(self, soup):
 
-        super().__init__(xmldir, xmlfile=xmlfile)
-        self.bodyxmlfile = xmlfile
-        self.append_overview = append_overview
-        self.overview = ""
-        self.variables_md = []
-        self.procedures_md = []
-        
-        self.mdfile = [f"# {self.toplevel_name}\n"]
-
-        if self.append_overview: 
-            overviewfile = xmlfile.replace("namespace","").replace("__mod.xml", "_8_f90.xml")
-            self.overview = ModuleTopLevelDocument(xmldir, overviewfile).overview
-            if self.overview:
-                if self.overview[-1] != ".":
-                    self.overview += "."
-                self.mdfile.append(f"{self.overview}\n")
-            else:
-                print(f"Warning: overview is empty for {self.toplevel_name} in {overviewfile}.")
-                self.append_overview = False
-
-
-    def document_module_variables(self):
         """
         Documents module variables.  For example, parses
 
@@ -218,87 +171,97 @@ class ModuleBodyDocument(XMLsoup):
             integer :: var2 !< is another variable
           end module this module
         
-        and returns               
-          ## this_module variables
-          | Name | Type | Definition |
-          |------|------|------------|
-          | var1 | real(8) | is a variable |
-          | var2 | integer | is another variable |
         All variable descriptions are assumed to be less than ~400 tokens.
         """
 
-        variables_obj = self.soup.find_all("memberdef", {"kind": "variable"})
+        variables_objs = soup.find_all("memberdef", {"kind": "variable"})
 
-        if not variables_obj:
-            return "There are no module variables in this module.  "
+        if variables_objs:
+            for variable_obj in variables_objs:
+                varname = _clean(variable_obj.find("name"))
+                self.variables_dict[varname] = {
+                    "type": _clean(variable_obj.type),
+                    "briefdescription": _clean(variable_obj.briefdescription)
+                }
 
-        self.variables_md.append(f"## variables\n")
-        self.variables_md.append("| Name | Type | Definition |\n|------|------|------------|")
-        for variable in variables_obj:
-            varname = self.get_name(variable)
-            vartype = self.get_tag_to_string("type", variable)
-            briefdescription = self.get_tag_to_string("briefdescription", variable)
-            self.variables_md.append(f"| {varname} | {vartype} | {briefdescription} |")
+        return self.variables_dict
 
-        self.variables_md.append("\n")
-        self.mdfile.extend(self.variables_md)
-                               
-    def document_procedures(self):
-        """
-        Documents procedures. 
-        """
 
-        procedures_obj = self.soup.find_all("memberdef", {"kind": "function"})
-        if not procedures_obj:
-            return "There are no procedures in this module"
+class FMSCouplerModuleDocument():
 
-        for procedure in procedures_obj:
-            
-            procname = self.get_name(procedure) 
-            proctype = self.get_tag_to_string("type", procedure).split(",")[0].strip() #subroutine or function
-            argsstring = self.get_tag_to_string("argsstring", procedure)
-            parameters_description = self.get_parameters_description(procedure, subroutine_name=procname)
-            briefdescription = self.get_tag_to_string("briefdescription", procedure)
-            detaileddescription = self.get_tag_to_string("parblock", procedure)            
-            inbodydescription = self.get_inbodydescription(procedure)
+    def __init__(self,
+                 xmldir: str|Path = "./docs/xml",
+                 xmlfile: str|Path = None):
 
-            if briefdescription and briefdescription[-1] != ".":
-                briefdescription += "."
-            if detaileddescription and detaileddescription[-1] != ".":
-                detaileddescription += "."
+        self.xmlsoup = XMLsoup.get_soup(xmldir=xmldir, xmlfile=xmlfile)
+        self.module_name = _clean(self.xmlsoup.find("compoundname"))
+        self.overview = TopLevelDocParser().get_description(self.xmlsoup)
+        self.variables = ModuleVariableParser().get_module_variables(self.xmlsoup)
+        self.procedures = ProcedureParser().document_procedures(self.xmlsoup)
 
-            markdown  = f"## {procname}\n"
-            markdown += f"### intro\n"
-            if self.append_overview:
-                markdown += f"{self.overview}  "
-            markdown += f"{procname} is a {proctype} in {self.toplevel_name}.\n"
-            markdown += f"### description\n"
-            markdown += f"{briefdescription}  {detaileddescription}\n"
-            markdown += f"### arguments\n{parameters_description}\n"
-            markdown += f"### flowchart\n"
-            markdown += f"{procname} does the following:  \n{inbodydescription}\n"
-            self.procedures_md.append(markdown)
+        self.mdfile = []
 
-        self.mdfile.extend(self.procedures_md)
-    
+    def convert_to_markdown(self):
+
+        self.mdfile.append(f"# Module: {self.module_name}\n")
+                
+        if self.overview:
+            self.mdfile.append(f"{self.overview}\n")
+            self.mdfile.append("\n")
+        
+        if self.variables:
+            self.mdfile.append("## Module variables\n")
+            self.mdfile.append("\n")
+            for varname, varinfo in self.variables.items():
+                vartype = varinfo["type"] if varinfo["type"] else "unknown"
+                vardescript = varinfo["briefdescription"] 
+                if not vardescript:
+                    vardescript = "No description"
+                self.mdfile.append(f"### {varname}\n")
+                self.mdfile.append(f"- type:  {vartype}\n")
+                self.mdfile.append(f"- description:  {vardescript}\n")
+                self.mdfile.append("\n")
+        
+        if self.procedures:
+            self.mdfile.append(f"## Subroutines and functions\n")
+            self.mdfile.append("\n")
+            for procname, procinfo in self.procedures.items():
+                proctype = procinfo["type"]
+                self.mdfile.append(f"### {proctype}: {procname}\n")
+                # description
+                description = procinfo["detaileddescription"] if procinfo["detaileddescription"] else "No description"
+                self.mdfile.append(f"- description:  {description}\n")
+                self.mdfile.append("\n")
+                # arguments
+                if procinfo["argsstring"]:
+                    self.mdfile.append(f"- arguments:  {procinfo['argsstring']}.")
+                if procinfo["parameters"]:
+                    arguments = [f"{argname} ({arginfo['inout']}) {arginfo['description']}" for argname, arginfo in procinfo["parameters"].items()]
+                    self.mdfile.append(".  ".join(arguments))
+                    self.mdfile.append("\n\n")
+                inbodydescription = procinfo["inbodydescription"]
+                if inbodydescription:
+                    self.mdfile.append("- additional description:")
+                    for step in inbodydescription:
+                        self.mdfile.append(f"{step}")
+                self.mdfile.append("\n\n")
+
     def write_markdown(self, output_dir: str|Path = "./"):
-        # Keep output filename path-safe while preserving module identity.
-        module_name = self.toplevel_name.replace("::", "__").replace("/", "_")
-        output_file = f"{module_name}.md"
 
-        markdown_content = "\n".join(str(section) for section in self.mdfile)
+        self.convert_to_markdown()
 
+        output_file = f"{self.module_name}.md"        
         with open(Path(output_dir)/output_file, "w", encoding="utf-8") as f:
-            f.write(markdown_content)
+            f.write("".join(self.mdfile))
 
         return output_file
 
 
-def test():                   
-    modxml = ModuleBodyDocument(xmlfile="namespaceatm__land__ice__flux__exchange__mod.xml", append_overview=True)
-    modxml.document_module_variables()
-    modxml.document_procedures()
-    modxml.write_markdown()
+def test():               
+    xmldir = "/home/Mikyung.Lee/chatbot/coupler-chatbot/fmscoupler/fmscoupler/docs/xml" 
+    xmlfile = "group__atm__land__ice__flux__exchange__mod.xml"
+    modxml = FMSCouplerModuleDocument(xmldir=xmldir, xmlfile=xmlfile)
+    modxml.convert_to_markdown()
 
 if __name__ == "__main__":
     test()
