@@ -1,9 +1,17 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from numpy.typing import NDArray
 
-class ChunkMetadata(BaseModel):
+class CollectionData(BaseModel):
     """Metadata for a document chunk."""
-    source: str
+
+
+    model_config = ConfigDict(arbitrary_types_allowed = True)
+    
     name: str
-    parent: str
-    ichunk: int = 0
-    datatype: str 
+    text: str
+    sourcefile: str
+    is_chunked: bool
+    dense_vector: list|NDArray = None
+    ichunk: int = 1 
+    chunks: list = [1]
+    

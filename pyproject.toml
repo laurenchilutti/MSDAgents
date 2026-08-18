@@ -15,7 +15,7 @@ dependencies = [
     "langchain-text-splitters",
     "lxml",
     "pydantic",
-    "pymilvus",
+    "pymilvus==2.6",
     "sentence_transformers"
 ]
 
