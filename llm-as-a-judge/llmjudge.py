@@ -7,7 +7,7 @@ ground truth answers.  It interacts with a locally running Ollama server.
 
 import re
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict
 import yaml
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
