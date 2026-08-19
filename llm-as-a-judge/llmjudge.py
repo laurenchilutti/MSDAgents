@@ -1,7 +1,7 @@
 """
 LLM-as-a-judge Evaluation Script
 
-This scripts acts as an LLM judge evaluating the responses of a chatbot against
+This script acts as an LLM judge evaluating the responses of a chatbot against
 ground truth answers.  It interacts with a locally running Ollama server.
 """
 
