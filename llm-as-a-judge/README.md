@@ -1,10 +1,10 @@
 # LLM-as-a-Judge Evaluation Script
 
-This directory contains a Python script that uses a locally running Large Language Model (LLM) to act as an automated "judge". The script evaluates a chatbot's responses against human-generated ground truth answers using [LangChain](https://python.langchain.com/) and [Ollama](https://ollama.com/).
+This directory contains a Python script (`llmjudge.py`) that uses a locally running Large Language Model (LLM) to act as an automated "judge". The script evaluates a chatbot's responses against human-generated ground truth answers using [LangChain](https://python.langchain.com/) and [Ollama](https://ollama.com/).
 
 ## Overview
 
-The script performs the following tasks:
+`llmjudge.py` performs the following tasks:
 1. **Reads Test Data**: Loads the chatbot's output log (`catalog_bot_output_log.yaml`), automatically cleaning out irrelevant HTTP request lines.
 2. **Reads Ground Truth**: Loads the baseline dataset (`groundtruth.yaml`).
 3. **Evaluates**: Passes the user query, ground truth answer, and chatbot answer to a local LLM (default: `llama3`, but can be changed) and asks it to score the response (1-10) and provide reasoning.
@@ -19,7 +19,7 @@ ollama pull llama3
 ```
 
 ### 2. Install Python Dependencies
-The script requires Python 3.8+ and the following packages:
+`llmjudge.py` requires Python 3.8+ and the following packages:
 ```bash
 pip install langchain-ollama langchain-core
 ```
@@ -27,7 +27,7 @@ These packages are included in this repository's pyproject.toml
 
 ## Required Input Files
 
-The script expects two YAML files to be present in the same directory:
+`llmjudge.py` expects two YAML files to be present in the same directory:
 
 ### `groundtruth.yaml`
 A simple key-value mapping of user queries to their correct, human-approved answers.
@@ -68,11 +68,11 @@ HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
     similarity_score: 0.5691466188389781
 
 ```
-*(Note: The script automatically filters out lines starting with `HTTP Request:` before parsing.)*
+*(Note: `llmjudge.py` automatically filters out lines starting with `HTTP Request:` before parsing.)*
 
 ## Usage
 
-1. Open the script and verify that the `MODEL_NAME` variable matches the model you have pulled via Ollama (e.g., `MODEL_NAME = "llama3"`).
+1. Open `llmjudge.py` and verify that the `MODEL_NAME` variable matches the model you have pulled via Ollama (e.g., `MODEL_NAME = "llama3"`).
 2. Run the script:
 ```bash
 python llmjudge.py
@@ -80,7 +80,7 @@ python llmjudge.py
 
 ## Output
 
-The script generates a file named `llm_as_a_judge_results.yaml` containing the score and reasoning for each evaluated query.
+`llmjudge.py` generates a file named `llm_as_a_judge_results.yaml` containing the score and reasoning for each evaluated query.
 
 Example Output:
 ```yaml
