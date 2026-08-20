@@ -1,7 +1,5 @@
-from document_utils import (
-    connect_vectorstore,
-)
 from shared.chatbot import RAGChatbot
+from shared.client import Client, MilvusRetriever
 
 OLLAMA_CHAT_MODEL = "mistral-nemo:latest"
 COLLECTION_NAME = "FMSCoupler"
@@ -23,8 +21,11 @@ GFDL (Geophysical Fluid Dynamics Laboratory) coupled climate models.
 {context}
 """
 
+client = Client(COLLECTION_NAME)
+retriever = MilvusRetriever(client)
+
 chatbot = RAGChatbot(
-    vectorstore=connect_vectorstore(COLLECTION_NAME), 
+    retriever=retriever, 
     system_message=system_message,
     model_name=OLLAMA_CHAT_MODEL, 
 )
@@ -36,7 +37,6 @@ while True:
         break
 
     response, docs_and_scores, context = chatbot.ask(user_question)        
-    sources = ", ".join([doc.metadata.get("source")+"/"+doc.metadata.get("name") for doc, _ in docs_and_scores])
     print(f"\nAssistant: {response}")
     print(f"\nContext: {context}")
     #print(f"Relevant sources: {sources}")

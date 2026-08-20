@@ -1,14 +1,35 @@
+from abc import ABC, abstractmethod
 from pprint import pformat
 
 from pymilvus import DataType, Function, FunctionType, MilvusClient
-from embeddings import (
+from shared.embeddings import (
     EmbeddingClass, 
     TokenizerClass,
     SentenceTransformerEmbedding,
     SentenceTransformerTokenizer
 )
+from shared.metadata import (
+    schema_metadata_fields, 
+    schema_vector_fields,
+    indexes,
+    sparse_vector_search_function,
+    CollectionData
+)
 
-class Client():
+class ClientClass(ABC):
+
+    @abstractmethod
+    def connect(self):
+        pass
+
+class RetrieverClass(ABC):
+
+    @abstractmethod
+    def retrieve(self, query: str):
+        pass
+
+
+class Client(ClientClass):
 
     def __init__(self, 
                  collection_name: str, 
@@ -34,6 +55,8 @@ class Client():
         self.embedding = embedding
         self.tokenizer = tokenizer
 
+        self.client = None
+
         if connect:
             self.connect()
         
@@ -48,43 +71,48 @@ class Client():
         print(f"Connected to Milvus at {self.uri}")
         print(f"Collections found: {self.client.list_collections()}")
 
+class newCollection(Client):
+
+    def __init__(self, 
+                 collection_name: str, 
+                 milvus_host: str="localhost", 
+                 milvus_port: int = 19530,
+                 connect: bool = True,
+                 schema = None,
+                 index_params = None,
+                 embedding: EmbeddingClass = SentenceTransformerEmbedding(),
+                 tokenizer: TokenizerClass = SentenceTransformerTokenizer()
+
+    ):
+        super().__init__(collection_name=collection_name, milvus_host=milvus_host, milvus_port=milvus_port,
+                         connect=connect, schema=schema, index_params=index_params, embedding=embedding, tokenizer=tokenizer)
         
-    def create_default_schema(self):
+    def create_schema(self):
         
         """
         Create default schema in accordance to shared/metadata
         """
 
         self.schema = self.client.create_schema(enable_dynamic_field=True)
-        self.schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
-        self.schema.add_field(field_name="name", datatype=DataType.VARCHAR, max_length=65535)
-        self.schema.add_field(field_name="text", datatype=DataType.VARCHAR, enable_analyzer=True, max_length=65535)
-        self.schema.add_field(field_name="sourcefile", datatype=DataType.VARCHAR, max_length=65535)
-        self.schema.add_field(field_name="is_chunked", datatype=DataType.BOOL)
-        self.schema.add_field(field_name="ichunk", datatype=DataType.INT32)
-        self.schema.add_field(field_name="chunks", datatype=DataType.ARRAY, element_type=DataType.INT32, max_capacity=20)
-        self.schema.add_field(field_name="dense_vector", datatype=DataType.FLOAT_VECTOR, dim=384) #default
-        self.schema.add_field(field_name="sparse_vector", datatype=DataType.SPARSE_FLOAT_VECTOR)
+
+        for field_name, field_info in schema_metadata_fields.items():
+            self.schema.add_field(**field_info)
+
+        for field_name, field_info in schema_vector_fields.items():
+            self.schema.add_field(**field_info)        
         
-        bm25 = Function(
-            name="text_bm25_emb", 
-            function_type=FunctionType.BM25,
-            input_field_names=["text"],
-            output_field_names=["sparse_vector"]
-        )
-        
-        self.schema.add_function(bm25)
+        self.schema.add_function(sparse_vector_search_function)
 
 
-    def add_default_index(self):
+    def add_index(self):
 
         """
-        Add default index
+        Add index to the collection
         """
         
         self.index_params = self.client.prepare_index_params()
-        self.index_params.add_index(field_name="dense_vector", index_type="AUTOINDEX", metric_type="COSINE")
-        self.index_params.add_index(field_name="sparse_vector", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")
+        for index, index_info in indexes.items():
+            self.index_params.add_index(**index_info)
 
 
     def create_collection(self):
@@ -97,8 +125,8 @@ class Client():
         if self.client.has_collection(self.collection_name):
             self.client.drop_collection(self.collection_name)
 
-        if self.schema is None: self.create_default_schema()
-        if self.index_params is None: self.add_default_index()
+        if self.schema is None: self.create_schema()
+        if self.index_params is None: self.add_index()
         
         self.client.create_collection(
             collection_name=self.collection_name, 
@@ -113,11 +141,12 @@ class Client():
         Add data to collection
         """
 
-        for datum in data:
-            print(datum.name)
-            datum.dense_vector = self.embedding.encode(datum.text)
+        for i, datum in enumerate(data, start=1):
+            data_dict = datum.dict()
+            print(i, data_dict["name"], data_dict["sourcefile"], data_dict["ichunk"], data_dict["chunks"])
+            data_dict["dense_vector"] = self.embedding.encode(data_dict["text"])
             
-        self.client.insert(self.collection_name, data=[datum.model_dump() for datum in data])
+        self.client.insert(self.collection_name, data=data_dict)
         
     
     def test_collection(self, logfile: str = None):
@@ -154,23 +183,35 @@ class Client():
             f.write(pformat(self.client.describe_collection(self.collection_name)))
             f.write("\n *** \n\n")
             for row in data:
-                f.write(f"name:       {row['name']}\n")
-                f.write(f"id:         {row['id']}\n")
-                f.write(f"sourcefile: {row['sourcefile']}\n")
-                f.write(f"is_chunked: {row['is_chunked']}\n")
-                f.write(f"ichunk:     {row['ichunk']}\n")
-                f.write(f"chunks:     {row['chunks']}\n")
                 f.write(f"ntokens:    {len(self.tokenizer.tokenize(row['text']))}\n")
-                f.write(f"text:\n{row['text']}\n\n")
+                for schema_key in schema_metadata_fields:
+                    f.write(f"{schema_key}: {row[schema_key]}\n")
 
-        return data     
-            
-
-if __name__ == "__main__":
-    client = Client(collection_name="FMSCoupler")
-    client.connect()
-    client.drop_collection()
-    client.create_collection()
-    print(client.list_collections())
+        return data
 
     
+class MilvusRetriever():
+
+    def __init__(self, client: Client):
+        self.client = client
+        self.retrieve_limit = 10
+        self.retrieve = self.simple_retrieve
+        
+    def simple_retrieve(self, query: str):
+
+        embedded_query = self.client.embedding.encode(query)
+        returned_fields = self.client.client.search(
+            self.client.collection_name,
+            data = [embedded_query],
+            anns_field = "dense_vector",
+            limit = self.retrieve_limit,
+            output_fields=["*"],
+        )
+        data = []
+        for returned_field in returned_fields[0]:
+            collection = CollectionData(
+                **{schema_key: returned_field[schema_key] for schema_key in schema_metadata_fields}
+            )
+            data.append(collection)
+
+        return data

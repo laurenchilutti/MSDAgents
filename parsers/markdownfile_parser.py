@@ -47,12 +47,12 @@ def parse(mddir: Path|str, mdfile: Path|str):
         name = construct_name(section)
         for ichunk, chunk_text in enumerate(chunkdict["splitted_content"], start=1):
             datum = CollectionData(
-                sourcefile = mdfile_.name,
-                name = name,
-                is_chunked = chunkdict["is_chunked"],
-                ichunk = ichunk,
-                chunks = chunkdict["chunks"],
-                text = chunk_text.strip()
+                    sourcefile=mdfile_.name,
+                    name=name,
+                    is_chunked=chunkdict["is_chunked"],
+                    ichunk=ichunk,
+                    chunks=chunkdict["chunks"],
+                    text = chunk_text.strip()
             )
             data.append(datum)
     return data

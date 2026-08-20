@@ -4,11 +4,11 @@ Requires Milvus standalone on localhost:19530.
 """
 
 from pathlib import Path
-import doxygen_xml_parser
-import markdownfile_parser
+from parsers.fortran_parser import doxygen_xml_parser
+import parsers.markdownfile_parser as markdownfile_parser
 
-from client import Client
-from utils import git_clone, run_doxygen
+from shared.client import newCollection
+from shared.utils import git_clone, run_doxygen
 
 FMSCOUPLER_DIR = Path("./fmscoupler")
 DOCS_DIR = FMSCOUPLER_DIR/"full/docs"
@@ -44,7 +44,7 @@ XMLFILES = [
 
 
 # clone
-git_clone("https://github.com/mlee03/fmscoupler.git", "doc/all-round1", FMSCOUPLER_DIR)
+git_clone("https://github.com/mlee03/FMScoupler.git", "doc/all-round1", FMSCOUPLER_DIR)
 
 # run doxygen
 run_doxygen(FMSCOUPLER_DIR)
@@ -68,9 +68,9 @@ for mdfile in DOC_FILES:
 print(f"\nTotal: {len(all_collection_data)} collection data")
 
 # Create the unified database
-client = Client(COLLECTION_NAME, connect=True)
-client.create_collection()
-client.add_data(data=all_collection_data)
-client.test_collection()
+database = newCollection(COLLECTION_NAME, connect=True)
+database.create_collection()
+database.add_data(data=all_collection_data)
+database.test_collection()
 
 print("\nDatabase creation and testing completed successfully.")
