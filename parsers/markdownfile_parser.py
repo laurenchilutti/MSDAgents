@@ -5,7 +5,7 @@ from langchain_text_splitters import (
     MarkdownHeaderTextSplitter,
 )
 
-from shared.metadata import CollectionData
+from shared.collection_data import CollectionData
 
 header_splitter = MarkdownHeaderTextSplitter(
     headers_to_split_on=[("#", "h1"), ("##", "h2"), ("###", "h3")],

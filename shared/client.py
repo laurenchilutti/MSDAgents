@@ -8,7 +8,7 @@ from shared.embeddings import (
     SentenceTransformerEmbedding,
     SentenceTransformerTokenizer
 )
-from shared.metadata import (
+from shared.collection_data import (
     schema_metadata_fields, 
     schema_vector_fields,
     indexes,
