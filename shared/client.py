@@ -1,7 +1,11 @@
 from abc import ABC, abstractmethod
+import re
 from pprint import pformat
 
 from pymilvus import DataType, Function, FunctionType, MilvusClient
+from pymilvus import AnnSearchRequest, WeightedRanker
+from pymilvus import LexicalHighlighter
+
 from shared.embeddings import (
     EmbeddingClass, 
     TokenizerClass,
@@ -70,6 +74,7 @@ class Client(ClientClass):
         self.client = MilvusClient(uri=self.uri)  
         print(f"Connected to Milvus at {self.uri}")
         print(f"Collections found: {self.client.list_collections()}")
+
 
 class newCollection(Client):
 
@@ -141,12 +146,14 @@ class newCollection(Client):
         Add data to collection
         """
 
+        data_list = []
         for i, datum in enumerate(data, start=1):
             data_dict = datum.dict()
             print(i, data_dict["name"], data_dict["sourcefile"], data_dict["ichunk"], data_dict["chunks"])
-            data_dict["dense_vector"] = self.embedding.encode(data_dict["text"])
-            
-        self.client.insert(self.collection_name, data=data_dict)
+            data_dict["dense_vector"] = self.embedding.encode(data_dict["text"])            
+            data_list.append(data_dict)
+        
+        self.client.insert(self.collection_name, data=data_list)
         
     
     def test_collection(self, logfile: str = None):
@@ -195,23 +202,119 @@ class MilvusRetriever():
     def __init__(self, client: Client):
         self.client = client
         self.retrieve_limit = 10
-        self.retrieve = self.simple_retrieve
-        
-    def simple_retrieve(self, query: str):
+        self.retrieve = self.hybrid_search
 
-        embedded_query = self.client.embedding.encode(query)
+
+    def simple_retrieve(self, query: str, filter_file: bool = True, filter_text: bool = True):
+        
+        search_options = {
+            "anns_field": "dense_vector",
+            "limit": self.retrieve_limit,
+            "output_fields": ["*"],
+        }
+
+        filters = self._get_filters(query, filter_file=filter_file, filter_text=filter_text)
+        if filters: search_options["filter"] = filters
+
         returned_fields = self.client.client.search(
             self.client.collection_name,
-            data = [embedded_query],
-            anns_field = "dense_vector",
-            limit = self.retrieve_limit,
+            data = [self.client.embedding.encode(query)],
+            **search_options
+        )
+
+        return self._format_output(returned_fields)
+
+
+    def hybrid_search(self, query: str):
+        dense_request = AnnSearchRequest(
+            data=[self.client.embedding.encode(query)], 
+            anns_field="dense_vector",
+            limit=self.retrieve_limit,
+            param={"metric_type": "COSINE", "params": {"nprobe": 10}},
+            expr=self._get_filters(query)
+        )
+        sparse_request = AnnSearchRequest(
+            data=[query],
+            anns_field="sparse_vector",
+            limit=self.retrieve_limit,
+            param={"metric_type": "BM25"},
+            expr=self._get_filters(query)
+        )
+        ranker = Function(
+            name="rrf",
+            input_field_names=[],
+            function_type=FunctionType.RERANK,
+            params={"reranker": "rrf", "k": 100}
+        )
+        returned = self.client.client.hybrid_search(
+            collection_name=self.client.collection_name,
+            reqs=[dense_request, sparse_request],
+            ranker=ranker,
+            limit=self.retrieve_limit,
             output_fields=["*"],
         )
-        data = []
-        for returned_field in returned_fields[0]:
-            collection = CollectionData(
-                **{schema_key: returned_field[schema_key] for schema_key in schema_metadata_fields}
-            )
-            data.append(collection)
+        return(self._format_output(returned))
 
+
+    def _get_filters(self, query: str, filter_file: bool = True, filter_text: bool = True):
+
+        filters = ""
+        if filter_file:
+            filters = self._filter_file(query)
+                    
+        if filter_text:
+            filtered_text = self._filter_text(query)
+            if filtered_text:
+                if filters:
+                    filters += " and " + filtered_text
+                else:
+                    filters = filtered_text
+
+        return filters
+
+
+    def _filter_file(self, query: str):
+
+        keyfiles = {
+            "atm_land_ice_flux_exchange_mod": "atm_land_ice_flux_exchange_mod.md",
+            "atmos_ocean_dep_fluxes_calc_mod": "atmos_ocean_dep_fluxes_calc_mod.md",
+            "atmos_ocean_fluxes_calc_mod": "atmos_ocean_fluxes_calc_mod.md",
+            "flux_exchange_mod": "flux_exchange_mod.md",
+            "full_coupler_mod": "full_coupler_mod.md",
+            "ice_ocean_flux_exchange_mod": "ice_ocean_flux_exchange_mod.md",
+            "land_ice_flux_exchange_mod": "land_ice_flux_exchange_mod.md"
+        }
+
+        # add method to correct typo
+
+        filters = re.findall(r'@(\w+)', query)
+        if filters:
+            filter_strings = [
+                f"sourcefile like '{keyfiles[word]}'" for word in filters if word in keyfiles
+            ]
+            return " and ".join(filter_strings) if filter_strings else ""
+        return ""
+
+
+    def _filter_text(self, query: str):
+
+        filters = re.findall(r'/(\w+)', query)
+        if filters:
+            filter_strings = [f"name like '%{filter_word}%'" for filter_word in filters]
+            #filter_strings = [f"TEXT_MATCH(text, '{filter_word}')" for filter_word in filters]
+            return " and ".join(filter_strings) if filter_strings else ""
+        return ""
+
+    def _format_output(self, retrieved: list):
+        data = []
+        for returned_field in retrieved[0]:
+            datum = {"score": returned_field["distance"]}            
+            for key in returned_field["entity"]:
+                datum[key] = returned_field["entity"][key]
+            data.append(datum)
         return data
+
+
+if __name__ == "__main__":
+    retriever = MilvusRetriever(client=None)  # Replace `None` with an actual `Client` instance if available
+    retriever._filter_file("This is a test @land_ice_flux_exchange_mod")

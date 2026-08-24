@@ -10,7 +10,7 @@ schema_metadata_fields = {
     "is_chunked": {"field_name": "is_chunked", "datatype": DataType.BOOL},
     "ichunk": {"field_name": "ichunk", "datatype": DataType.INT32},
     "chunks": {"field_name": "chunks", "datatype": DataType.ARRAY, "element_type": DataType.INT32, "max_capacity": 25},
-    "text": {"field_name": "text", "datatype": DataType.VARCHAR, "enable_analyzer": True, "max_length": 65535},
+    "text": {"field_name": "text", "datatype": DataType.VARCHAR, "enable_analyzer": True, "enable_match": True, "max_length": 65535},
 }
 
 schema_vector_fields = {

@@ -36,6 +36,6 @@ class RAGChatbot:
     def ask(self, question: str):
         """Invoke"""
         retrieved_data = self.retriever.retrieve(question)
-        context = "\n\n".join([data.text for data in retrieved_data])
+        context = "\n\n".join([data["text"] for data in retrieved_data])
         answer = self.answer_chain.invoke({"question": question, "context": context})
         return answer, retrieved_data, context
