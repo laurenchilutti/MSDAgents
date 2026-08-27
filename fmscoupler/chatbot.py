@@ -38,12 +38,13 @@ while True:
 
     response, docs_and_scores, context = chatbot.ask(user_question)        
     print(f"\nAssistant: {response}")
-    for doc_and_score in docs_and_scores:
-        print(f"***")
-        print(f"name:  {doc_and_score['name']}")
-        print(f"score: {doc_and_score['score']}")
-        print(f"sourcefile: {doc_and_score['sourcefile']}")
-        print(f"text: {doc_and_score['text']}")
-        print(f"ichunk: {doc_and_score['ichunk']}")
-        print(f"chunks: {doc_and_score['chunks']}")
+    print(f"source: {[doc['sourcefile'] for doc in docs_and_scores]}")
+#    for doc_and_score in docs_and_scores:
+#        print(f"***")
+#        print(f"name:  {doc_and_score['name']}")
+#        print(f"score: {doc_and_score['score']}")
+#        print(f"sourcefile: {doc_and_score['sourcefile']}")
+#        print(f"text: {doc_and_score['text']}")
+#        print(f"ichunk: {doc_and_score['ichunk']}")
+#        print(f"chunks: {doc_and_score['chunks']}")
     print("\n\n")

@@ -19,10 +19,6 @@ class RAGChatbot:
         
         # Load vectorstore
         self.retriever = retriever
-
-        # Set up hybrid search if requested
-        self.search_hybrid = search_hybrid
-        self.hybrid_kwargs = {"ranker_type": "rrf", "ranker_params": {"k": 60}} if search_hybrid else {}
             
         self.system_message = system_message
 
