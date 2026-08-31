@@ -24,7 +24,7 @@ class XMLsoup():
     """
 
     @staticmethod
-    def get_soup(xmldir: str|Path, xmlfile: str|Path):
+    def get(xmldir: str|Path, xmlfile: str|Path):
 
         if xmlfile is None:
             raise IOError("xmlfile not specified")
@@ -63,7 +63,7 @@ class ModuleVariableParser():
     def __init__(self):
         self.variables_dict = {}
     
-    def get_module_variables(self, soup):
+    def get(self, soup):
 
         """
         Documents module variables.  For example, parses
@@ -119,7 +119,7 @@ class ProcedureParser():
     def __init__(self):
         self.procedures_dict = {}
 
-    def get_module_procedures(self, soup):
+    def get(self, soup):
     
         """
         Documents subroutines and functions.
@@ -222,10 +222,11 @@ class TopLevelDocParser():
 
         self.description_dict = {
             "brief": "",
-            "detailed": ""
+            "detailed": "",
+            "overview": ""
         }
     
-    def get_description(self, soup):
+    def get(self, soup):
         
         for child in soup.doxygen.compounddef.children:
             if child.name == "briefdescription":
@@ -233,34 +234,71 @@ class TopLevelDocParser():
             if child.name == "detaileddescription":
                 self.description_dict["detailed"] = _clean(child)        
 
+        self.description_dict["overview"] = self.description_dict["brief"] + "  " + self.description_dict["detailed"]
         return self.description_dict  
     
 
-class FMSCouplerModuleDocument():
+class InterfaceParser(XMLsoup):
 
-    def __init__(self, xmldir: str|Path, xmlfile: str|Path):
+    def __init__(self, xmldir: str|Path):
 
-        self.xmlsoup = XMLsoup.get_soup(xmldir=xmldir, xmlfile=xmlfile)
+        self.interface_dict = {}
+        self.xmldir = xmldir
+
+    def get_interface_files(self, soup):
+        
+        innerclasses = soup.find_all("innerclass")
+        if innerclasses:
+            filenames = [_clean(innerclass.get("refid"))+".xml" for innerclass in innerclasses]
+            return filenames
+
+    def get(self, soup):
+
+        xmlfiles = self.get_interface_files(soup)
+        if xmlfiles is None:
+            return self.interface_dict
+        
+        for xmlfile in xmlfiles:
+            xmlsoup = XMLsoup.get(self.xmldir, xmlfile)
+            name = _clean(xmlsoup.find("compoundname").text.split("::")[1])
+            self.interface_dict[name] = {
+                "name": name,
+                "members": [_clean(subroutine.text) for subroutine in xmlsoup.find_all("definition")],
+                "overview": TopLevelDocParser().get(xmlsoup)["overview"]
+            }
+        return self.interface_dict        
+
+
+class ModuleDocument():
+
+    def __init__(self, xmldir: str|Path, group_xmlfile: str|Path):
+
+        self.xmldir = Path(xmldir)
+        self.group_xmlfile = Path(group_xmlfile)
+        self.xmlsoup = XMLsoup.get(xmldir=xmldir, xmlfile=group_xmlfile)
         self.module_name = None
         self.overview = None
         self.variables = None
         self.procedures = None
+
+        self.interfaces = None
 
         self.mdfile = []
 
     def populate(self):
 
         self.module_name = _clean(self.xmlsoup.doxygen.compoundname)
-        self.overview = TopLevelDocParser().get_description(self.xmlsoup)
-        self.variables = ModuleVariableParser().get_module_variables(self.xmlsoup)
-        self.procedures = ProcedureParser().get_module_procedures(self.xmlsoup)
+        self.overview = TopLevelDocParser().get(self.xmlsoup)
+        self.variables = ModuleVariableParser().get(self.xmlsoup)
+        self.procedures = ProcedureParser().get(self.xmlsoup)
+        self.interfaces = InterfaceParser(self.xmldir).get(self.xmlsoup)
 
     def convert_to_markdown(self):
 
         self.mdfile.append(f"# Module: {self.module_name}\n")
                 
         if self.overview:
-            self.mdfile.append(f"{self.overview}\n")
+            self.mdfile.append(f"{self.overview["overview"]}\n")
             self.mdfile.append("\n")
         
         if self.variables:
@@ -304,6 +342,15 @@ class FMSCouplerModuleDocument():
                     for step in inbodydescription:
                         self.mdfile.append(f"{step}")
                 self.mdfile.append("\n\n")
+        
+        if self.interfaces:            
+            self.mdfile.append(f"## Interfaces\n")
+            for interfacename, interfaceinfo in self.interfaces.items():
+                self.mdfile.append(f"### {interfacename}\n")
+                self.mdfile.append(f"- name:  {interfacename}\n")
+                self.mdfile.append(f"- description:  {interfaceinfo['overview']}\n")
+                self.mdfile.append(f"- members:  {', '.join(interfaceinfo['members'])}\n")
+                self.mdfile.append("\n")
 
     def write_markdown(self, output_dir: str|Path, output_file: str|Path = None, create_dir: bool = True):
 
@@ -323,80 +370,10 @@ class FMSCouplerModuleDocument():
         return output_file_
 
 
-# needs to be updated
-class InterfaceDocument(XMLsoup):
-
-    def __init__(self,
-                 xmldir: str|Path = "./docs/xml",
-                 xmlfile: str|Path = None,
-                 include_flowchart: bool = True):
-
-        super().__init__(xmldir, xmlfile=xmlfile)
-        self.include_flowchart = include_flowchart
-        self.interface_name = self.toplevel_name
-        name_parts = self.interface_name.split("::", 1)
-        self.module_name = name_parts[0] if len(name_parts) == 2 else ""
-        self.generic_name = name_parts[1] if len(name_parts) == 2 else self.interface_name
-        self.mdfile = [f"# {self.interface_name}\n"]
-
-    def document_interface(self):
-        compounddef = self.soup.find("compounddef")
-        briefdescription = self.get_direct_tag_to_string("briefdescription", compounddef)
-        detaileddescription = self.get_direct_tag_to_string("detaileddescription", compounddef)
-
-        if briefdescription and briefdescription[-1] != ".":
-            briefdescription += "."
-        if detaileddescription and detaileddescription[-1] != ".":
-            detaileddescription += "."
-
-        markdown = f"## interface {self.generic_name}\n"
-        markdown += "### intro\n"
-        if self.module_name:
-            markdown += f"{self.generic_name} is a generic interface in {self.module_name}.\n"
-        else:
-            markdown += f"{self.generic_name} is a generic interface.\n"
-        markdown += "### description\n"
-        markdown += f"{briefdescription}  {detaileddescription}\n"
-
-        procedures_obj = self.soup.find_all("memberdef", {"kind": "function"})
-        if procedures_obj:
-            markdown += "### implementations\n"
-            for procedure in procedures_obj:
-                procname = self.get_name(procedure)
-                proctype = self.get_tag_to_string("type", procedure).split(",")[0].strip()
-                parameters_description = self.get_parameters_description(procedure, subroutine_name=procname)
-                proc_brief = self.get_tag_to_string("briefdescription", procedure)
-                proc_detail = self.get_tag_to_string("detaileddescription", procedure)
-                inbodydescription = self.get_inbodydescription(procedure) if self.include_flowchart else ""
-
-                if proc_brief and proc_brief[-1] != ".":
-                    proc_brief += "."
-                if proc_detail and proc_detail[-1] != ".":
-                    proc_detail += "."
-
-                markdown += f"#### {procname}\n"
-                markdown += f"{procname} is a {proctype} implementation of {self.generic_name}.\n"
-                markdown += f"{proc_brief}  {proc_detail}\n"
-                if parameters_description:
-                    markdown += f"{parameters_description}\n"
-                if self.include_flowchart and inbodydescription:
-                    markdown += "##### flowchart\n"
-                    markdown += f"{procname} does the following:  \n{inbodydescription}\n"
-
-        self.mdfile.append(markdown)
-        return markdown
-
-    def write_markdown(self, output_dir: str|Path = "./"):
-        interface_name = self.interface_name.replace("::", "__").replace("/", "_")
-        output_file = f"{interface_name}.md"
-
-        markdown_content = "\n".join(str(section) for section in self.mdfile)
-
-        with open(Path(output_dir)/output_file, "w", encoding="utf-8") as f:
-            f.write(markdown_content)
-
-        return output_file
-
-
 if __name__ == "__main__":
-    test()
+    xmldir = "/home/Mikyung.Lee/chatbot/fmscoupler-revisions/fms/FMS/docs/xml/"
+    xmlfile = "group__horiz__interp__mod.xml"
+    module = ModuleDocument(xmldir, xmlfile)
+    module.populate()
+    module.convert_to_markdown()
+    module.write_markdown("./")
