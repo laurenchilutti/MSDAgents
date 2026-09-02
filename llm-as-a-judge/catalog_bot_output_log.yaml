@@ -56,7 +56,7 @@ HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
 
     {context}'
   user_query: What command can I use to compile a model?
-  ai_response: 'Use the fremake compile-script command to compile a model.'
+  ai_response: 'Use the fremake command to compile a model.'
   retrieved_files:
   - source: ../CatalogBuilder/doc/generation2.rst
     similarity_score: 0.5691466188389781

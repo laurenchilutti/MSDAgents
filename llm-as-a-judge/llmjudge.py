@@ -19,8 +19,7 @@ BASELINE_FILE = Path("groundtruth.yaml")
 TEST_FILE = Path("catalog_bot_output_log.yaml")
 OUTPUT_FILE = Path("llm_as_a_judge_results.yaml")
 # The name of the model as the backend to this LLM judge
-MODEL_NAME = "llama3"
-
+MODEL_NAME = "nemotron-3-nano"
 
 def clean_logger_file(file_path: Path) -> str:
     """Reads a file and keeps only the lines that do NOT start with 'HTTP Request:'"""

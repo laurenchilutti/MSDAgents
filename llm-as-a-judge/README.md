@@ -7,7 +7,7 @@ This directory contains a Python script (`llmjudge.py`) that uses a locally runn
 `llmjudge.py` performs the following tasks:
 1. **Reads Test Data**: Loads the chatbot's output log (`catalog_bot_output_log.yaml`), automatically cleaning out irrelevant HTTP request lines.
 2. **Reads Ground Truth**: Loads the baseline dataset (`groundtruth.yaml`).
-3. **Evaluates**: Passes the user query, ground truth answer, and chatbot answer to a local LLM (default: `llama3`, but can be changed) and asks it to score the response (1-10) and provide reasoning.
+3. **Evaluates**: Passes the user query, ground truth answer, and chatbot answer to a local LLM (default: `nemotron-3-nano`, but can be changed) and asks it to score the response (1-10) and provide reasoning.
 4. **Outputs Results**: Parses the LLM's YAML-formatted feedback and compiles it into a final output file (`llm_as_a_judge_results.yaml`).
 
 ## Prerequisites
@@ -15,7 +15,7 @@ This directory contains a Python script (`llmjudge.py`) that uses a locally runn
 ### 1. Install Ollama & Pull the Model
 Ensure you have [Ollama](https://ollama.com/) installed and running locally. You will need to pull the model you intend to use. For example:
 ```bash
-ollama pull llama3
+ollama pull nemotron-3-nano
 ```
 
 ### 2. Install Python Dependencies
@@ -72,7 +72,7 @@ HTTP Request: POST http://127.0.0.1:11434/api/chat "HTTP/1.1 200 OK"
 
 ## Usage
 
-1. Open `llmjudge.py` and verify that the `MODEL_NAME` variable matches the model you have pulled via Ollama (e.g., `MODEL_NAME = "llama3"`).
+1. Open `llmjudge.py` and verify that the `MODEL_NAME` variable matches the model you have pulled via Ollama (e.g., `MODEL_NAME = "nemotron-3-nano"`).
 2. Run the script:
 ```bash
 python llmjudge.py
