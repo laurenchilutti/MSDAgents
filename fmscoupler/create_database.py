@@ -54,7 +54,7 @@ all_collection_data = []
 # parse code documentation
 for xmlfile in XMLFILES:
     print(f"Processing {xmlfile}...")
-    modxml = doxygen_xml_parser.GroupModuleDocument(XML_DIR, xmlfile)
+    modxml = doxygen_xml_parser.ModuleDocument(XML_DIR, xmlfile)
     modxml.populate()
     mdfile = modxml.write_markdown(output_dir=MARKDOWN_DIR)
     collection_data = markdownfile_parser.parse(MARKDOWN_DIR, mdfile)
