@@ -1,4 +1,5 @@
 #needed for autoeval
+import time
 from pathlib import Path
 from typing import Dict
 import yaml
@@ -55,17 +56,23 @@ if args.test:
     bot_responses: Dict[str, str]= {}
 
     for user_question in groundtruth_yaml.keys():
+        start_time = time.time()
         response, docs_and_scores, context = chatbot.ask(user_question)
+        end_time = time.time()
+
+        time_str = f"Time to generate response: {end_time - start_time:.2f} seconds"
+        response_with_time = f"{response}\n\n{time_str}"
+
         print(f"\nAssistant: {response}")
         print(f"source: {[doc['sourcefile'] for doc in docs_and_scores]}")
         print("\n\n")
 
         #needed for lauren's logger
         try:
-            bot_responses[user_question] = yaml.safe_load(json.dumps(response))
+            bot_responses[user_question] = yaml.safe_load(json.dumps(response_with_time))
         except yaml/YAMLError as e:
             print(f"YAML Parsing Errror for query '{user_question}': {e}")
-            bot_responses[user_question] = response
+            bot_responses[user_question] = response_with_time
     # Outside of the LLM loop, aggregate evaluation results
     # This should be replaced by the logger
     with OUTPUT_FILE.open("w", encoding="utf-8") as f:
@@ -83,7 +90,10 @@ else:
             print("Bye.")
             break
 
-        response, docs_and_scores, context = chatbot.ask(user_question)        
+        start_time = time.time()
+        response, docs_and_scores, context = chatbot.ask(user_question)
+        end_time = time.time()
         print(f"\nAssistant: {response}")
         print(f"source: {[doc['sourcefile'] for doc in docs_and_scores]}")
+        print(f"Time to generate response: {end_time - start_time:.2f} seconds")
         print("\n\n")
