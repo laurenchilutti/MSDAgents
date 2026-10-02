@@ -63,7 +63,7 @@ if args.test:
         #needed for lauren's logger
         try:
             bot_responses[user_question] = yaml.safe_load(json.dumps(response))
-        except yaml/YAMLError as e:
+        except yaml.YAMLError as e:
             print(f"YAML Parsing Errror for query '{user_question}': {e}")
             bot_responses[user_question] = response
     # Outside of the LLM loop, aggregate evaluation results
